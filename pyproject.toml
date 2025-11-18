@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lora-text-to-sql"
+version = "0.1.0"
+description = "LoRA fine-tuning of a small open-weight LLM for text-to-SQL, measured against zero-shot and few-shot prompting"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=5.0,<6",
+    "peft>=0.17",
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "tokenizers>=0.20",
+    "sqlglot>=25",
+]
