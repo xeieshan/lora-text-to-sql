@@ -90,3 +90,50 @@ def _build_db(schema: dict[str, list[tuple[str, str]]], strings, numbers, rng: r
                     pool = numbers or [0.0]
                     row.append(rng.choice(pool) if rng.random() < 0.5 else rng.randint(-5, 100))
                 else:
+                    pool = strings or _WORDS
+                    row.append(rng.choice(pool) if rng.random() < 0.5 else rng.choice(_WORDS))
+            rows.append(row)
+        placeholders = ", ".join("?" for _ in cols)
+        conn.executemany(f'INSERT INTO "{table}" VALUES ({placeholders})', rows)
+    return conn
+
+
+def _run(conn: sqlite3.Connection, sql: str):
+    return Counter(tuple(r) for r in conn.execute(sql).fetchall())
+
+
+def execution_match(context: str, gold: str, pred: str, n_dbs: int = 3, n_rows: int = 15, seed: int = 0) -> bool:
+    schema = parse_schema(context)
+    if not schema or not pred.strip():
+        return False
+    strings, numbers = gold_literals(gold)
+    rng = random.Random(seed)
+    for _ in range(n_dbs):
+        conn = _build_db(schema, strings, numbers, rng, n_rows)
+        try:
+            try:
+                gold_res = _run(conn, gold)
+            except sqlite3.Error:
+                return normalized_exact_match(gold, pred)  # gold itself doesn't run here; fall back
+            try:
+                if _run(conn, pred) != gold_res:
+                    return False
+            except sqlite3.Error:
+                return False
+        finally:
+            conn.close()
+    return True
+
+
+def is_valid(context: str, pred: str) -> bool:
+    if not pred.strip():
+        return False  # sqlite3 happily "executes" an empty string
+    schema = parse_schema(context)
+    conn = _build_db(schema, [], [], random.Random(0), 0)
+    try:
+        conn.execute(pred).fetchall()
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
