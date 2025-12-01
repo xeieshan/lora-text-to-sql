@@ -30,3 +30,36 @@ def load_sql_create_context(seed: int = 42, n_val: int = 500, n_test: int = 1000
     examples = []
     for r in rows:
         key = (r["question"].strip().lower(), r["context"].strip())
+        if key in seen:
+            continue
+        seen.add(key)
+        examples.append(Example(r["question"].strip(), r["context"].strip(), r["answer"].strip()))
+    return split_examples(examples, seed, n_val, n_test)
+
+
+def split_examples(examples: list[Example], seed: int, n_val: int, n_test: int) -> dict[str, list[Example]]:
+    shuffled = examples[:]
+    random.Random(seed).shuffle(shuffled)
+    if len(shuffled) <= n_val + n_test:
+        raise ValueError("not enough examples for the requested validation and test sizes")
+    return {
+        "test": shuffled[:n_test],
+        "validation": shuffled[n_test : n_test + n_val],
+        "train": shuffled[n_test + n_val :],
+    }
+
+
+_TABLES = {
+    "employee": [("name", "VARCHAR"), ("age", "INTEGER"), ("city", "VARCHAR"), ("salary", "INTEGER")],
+    "product": [("title", "VARCHAR"), ("price", "INTEGER"), ("category", "VARCHAR"), ("stock", "INTEGER")],
+    "match": [("home_team", "VARCHAR"), ("away_team", "VARCHAR"), ("score", "INTEGER"), ("year", "INTEGER")],
+}
+_VALUES = {"city": ["Paris", "Lagos", "Lima"], "category": ["toys", "books"], "home_team": ["Ajax", "Inter"]}
+
+
+def synthetic_examples(n: int = 300, seed: int = 0) -> list[Example]:
+    """Template-generated questions over three small schemas (used by tests and the CPU smoke run)."""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        table = rng.choice(list(_TABLES))
