@@ -63,3 +63,36 @@ def synthetic_examples(n: int = 300, seed: int = 0) -> list[Example]:
     out = []
     for _ in range(n):
         table = rng.choice(list(_TABLES))
+        cols = _TABLES[table]
+        context = f"CREATE TABLE {table} ({', '.join(f'{c} {t}' for c, t in cols)})"
+        num_cols = [c for c, t in cols if t == "INTEGER"]
+        str_cols = [c for c, t in cols if t == "VARCHAR"]
+        kind = rng.randrange(4)
+        if kind == 0:
+            out.append(Example(f"How many {table} rows are there?", context, f"SELECT COUNT(*) FROM {table}"))
+        elif kind == 1:
+            c = rng.choice(num_cols)
+            out.append(Example(f"What is the highest {c} in {table}?", context, f"SELECT MAX({c}) FROM {table}"))
+        elif kind == 2:
+            c = rng.choice(num_cols)
+            v = rng.randint(1, 99)
+            q = f"List the {str_cols[0]} of {table} with {c} greater than {v}."
+            out.append(Example(q, context, f"SELECT {str_cols[0]} FROM {table} WHERE {c} > {v}"))
+        else:
+            c = rng.choice([s for s in str_cols if s in _VALUES] or str_cols)
+            v = rng.choice(_VALUES.get(c, ["x"]))
+            q = f"What is the average {num_cols[0]} of {table} whose {c} is {v}?"
+            out.append(Example(q, context, f"SELECT AVG({num_cols[0]}) FROM {table} WHERE {c} = '{v}'"))
+    return out
+
+
+def save_jsonl(examples: list[Example], path: str | Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for ex in examples:
+            f.write(json.dumps(asdict(ex)) + "\n")
+
+
+def load_jsonl(path: str | Path) -> list[Example]:
+    return [Example(**json.loads(line)) for line in Path(path).read_text(encoding="utf-8").splitlines() if line]
