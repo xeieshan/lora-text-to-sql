@@ -122,3 +122,65 @@ def train_lora(cfg: TrainConfig, train: list[Example], val: list[Example], model
         per_device_train_batch_size=cfg.batch_size,
         per_device_eval_batch_size=cfg.batch_size,
         gradient_accumulation_steps=cfg.grad_accum,
+        learning_rate=cfg.learning_rate,
+        lr_scheduler_type="cosine",
+        warmup_steps=max(1, int(cfg.warmup_fraction * total_steps)),
+        logging_steps=max(1, total_steps // 20),
+        eval_strategy="steps",
+        eval_steps=max(1, total_steps // 4),
+        save_strategy="no",
+        report_to="none",
+        seed=cfg.seed,
+        remove_unused_columns=False,
+        use_cpu=not torch.cuda.is_available(),
+        **_precision_flags(),
+    )
+    trainer = Trainer(
+        model=model,
+        args=args,
+        train_dataset=train_rows,
+        eval_dataset=val_rows,
+        data_collator=PadCollator(tokenizer.pad_token_id),
+    )
+    start = time.perf_counter()
+    trainer.train()
+    elapsed = time.perf_counter() - start
+
+    out = Path(cfg.output_dir)
+    model.save_pretrained(out / "adapter")
+    tokenizer.save_pretrained(out / "adapter")
+    history = [h for h in trainer.state.log_history if "loss" in h or "eval_loss" in h]
+    summary = {
+        "config": asdict(cfg),
+        "trainable_params": trainable,
+        "total_params": total,
+        "trainable_pct": round(100 * trainable / total, 3),
+        "train_examples_used": len(train_rows),
+        "steps": trainer.state.global_step,
+        "train_seconds": round(elapsed, 1),
+        "final_eval_loss": next((h["eval_loss"] for h in reversed(history) if "eval_loss" in h), None),
+        "log_history": history,
+    }
+    (out / "train_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return out / "adapter"
+
+
+@torch.no_grad()
+def generate_sql(model, tokenizer, prompts: list[str], batch_size: int = 16, max_new_tokens: int = 128) -> list[str]:
+    tokenizer.padding_side = "left"
+    device = next(model.parameters()).device
+    outputs = []
+    for i in range(0, len(prompts), batch_size):
+        batch = prompts[i : i + batch_size]
+        enc = tokenizer(batch, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
+        gen = model.generate(
+            **enc,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+        new_tokens = gen[:, enc["input_ids"].shape[1] :]
+        texts = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+        outputs.extend(extract_sql(t) for t in texts)
+    return outputs
