@@ -60,3 +60,65 @@ class PadCollator:
         def pad(seq, value):
             return seq + [value] * (width - len(seq))
 
+        return {
+            "input_ids": torch.tensor([pad(b["input_ids"], self.pad_id) for b in batch]),
+            "attention_mask": torch.tensor([pad(b["attention_mask"], 0) for b in batch]),
+            "labels": torch.tensor([pad(b["labels"], -100) for b in batch]),
+        }
+
+
+def load_tokenizer(name_or_path: str):
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(name_or_path)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    return tok
+
+
+def _precision_flags() -> dict[str, bool]:
+    if not torch.cuda.is_available():
+        return {"bf16": False, "fp16": False}
+    bf16 = torch.cuda.is_bf16_supported()
+    return {"bf16": bf16, "fp16": not bf16}
+
+
+def train_lora(cfg: TrainConfig, train: list[Example], val: list[Example], model=None, tokenizer=None) -> Path:
+    from peft import LoraConfig, get_peft_model
+    from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, set_seed
+
+    set_seed(cfg.seed)
+    tokenizer = tokenizer or load_tokenizer(cfg.base_model)
+    if model is None:
+        dtype = torch.bfloat16 if _precision_flags()["bf16"] else torch.float32
+        model = AutoModelForCausalLM.from_pretrained(cfg.base_model, dtype=dtype)
+    if cfg.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
+
+    lora = LoraConfig(
+        r=cfg.lora_r,
+        lora_alpha=cfg.lora_alpha,
+        lora_dropout=cfg.lora_dropout,
+        target_modules=cfg.target_modules,
+        task_type="CAUSAL_LM",
+    )
+    model = get_peft_model(model, lora)
+    trainable, total = model.get_nb_trainable_parameters()
+
+    def encode(examples):
+        rows = [tokenize_example(tokenizer, ex, cfg.max_length) for ex in examples]
+        return [r for r in rows if r is not None]
+
+    train_rows = encode(train[: cfg.max_train_examples])
+    val_rows = encode(val)
+    steps_per_epoch = math.ceil(len(train_rows) / (cfg.batch_size * cfg.grad_accum))
+    total_steps = cfg.max_steps if cfg.max_steps > 0 else math.ceil(steps_per_epoch * cfg.epochs)
+
+    args = TrainingArguments(
+        output_dir=cfg.output_dir,
+        num_train_epochs=cfg.epochs,
+        max_steps=cfg.max_steps,
+        per_device_train_batch_size=cfg.batch_size,
+        per_device_eval_batch_size=cfg.batch_size,
+        gradient_accumulation_steps=cfg.grad_accum,
