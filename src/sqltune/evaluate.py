@@ -50,3 +50,29 @@ def run_mode(model, tokenizer, test, mode, shots_pool, batch_size=16, max_new_to
     from .modeling import generate_sql
 
     prompts = build_prompts(test, mode, shots_pool)
+    start = time.perf_counter()
+    preds = generate_sql(model, tokenizer, prompts, batch_size=batch_size, max_new_tokens=max_new_tokens)
+    elapsed = time.perf_counter() - start
+    result = score(test, preds)
+    result.update(mode=mode, generation_seconds=round(elapsed, 1))
+    return result
+
+
+def results_table(results: dict[str, dict]) -> str:
+    lines = [
+        "| Mode | Exact match | Execution match | Valid SQL | n |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for name, r in results.items():
+        lines.append(
+            f"| {name} | {r['exact_match']:.3f} | {r['execution_match']:.3f} | {r['valid_sql']:.3f} | {r['n']} |"
+        )
+    return "\n".join(lines)
+
+
+def save_results(results: dict[str, dict], out_dir: str | Path, tag: str) -> Path:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{tag}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    (out / f"{tag}.md").write_text(results_table(results) + "\n", encoding="utf-8")
+    return out / f"{tag}.md"
