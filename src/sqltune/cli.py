@@ -108,3 +108,58 @@ def cmd_smoke(args):
                 "exact_match": result["exact_match"],
                 "sample_predictions": [{"gold": r["gold"], "pred": r["pred"]} for r in result["per_example"][:3]],
             },
+            indent=2,
+        )
+    )
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="sqltune", description=__doc__)
+    sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("prepare", help="download sql-create-context, dedupe, split")
+    s.add_argument("--data-dir", default="data")
+    s.add_argument("--seed", type=int, default=42)
+    s.add_argument("--n-val", type=int, default=500)
+    s.add_argument("--n-test", type=int, default=1000)
+    s.set_defaults(func=cmd_prepare)
+
+    s = sub.add_parser("train", help="LoRA fine-tune")
+    s.add_argument("--data-dir", default="data")
+    s.add_argument("--base-model", default=TrainConfig.base_model)
+    s.add_argument("--output-dir", default="outputs/lora")
+    s.add_argument("--max-train-examples", type=int, default=10_000)
+    s.add_argument("--max-val-examples", type=int, default=300)
+    s.add_argument("--epochs", type=float, default=1.0)
+    s.add_argument("--max-steps", type=int, default=-1)
+    s.add_argument("--lr", type=float, default=2e-4)
+    s.add_argument("--batch-size", type=int, default=16)
+    s.add_argument("--grad-accum", type=int, default=1)
+    s.add_argument("--lora-r", type=int, default=16)
+    s.add_argument("--lora-alpha", type=int, default=32)
+    s.add_argument("--gradient-checkpointing", action="store_true")
+    s.set_defaults(func=cmd_train)
+
+    s = sub.add_parser("evaluate", help="zero-shot vs few-shot vs LoRA on the test split")
+    s.add_argument("--data-dir", default="data")
+    s.add_argument("--base-model", default=TrainConfig.base_model)
+    s.add_argument("--adapter", default="outputs/lora/adapter")
+    s.add_argument("--modes", nargs="+", default=["zero_shot", "few_shot", "lora"])
+    s.add_argument("--limit", type=int, default=0)
+    s.add_argument("--batch-size", type=int, default=16)
+    s.add_argument("--out-dir", default="results")
+    s.add_argument("--tag", default="comparison")
+    s.set_defaults(func=cmd_evaluate)
+
+    s = sub.add_parser("smoke", help="tiny offline end-to-end run (CPU, ~1 min)")
+    s.add_argument("--output-dir", default="outputs/smoke")
+    s.add_argument("--steps", type=int, default=300)
+    s.set_defaults(func=cmd_smoke)
+
+    args = p.parse_args(argv)
+    args.func(args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
