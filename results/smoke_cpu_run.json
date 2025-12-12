@@ -1,0 +1,23 @@
+{
+  "steps": 300,
+  "trainable_pct": 24.699,
+  "first_loss": 5.776836649576823,
+  "final_eval_loss": 4.8053059577941895,
+  "test_n": 20,
+  "valid_sql": 1.0,
+  "exact_match": 0.75,
+  "sample_predictions": [
+    {
+      "gold": "SELECT AVG(score) FROM match WHERE home_team = 'Inter'",
+      "pred": "SELECT AVG(score) FROM match WHERE home_team = 'Inter'"
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM match",
+      "pred": "SELECT COUNT(*) FROM match"
+    },
+    {
+      "gold": "SELECT home_team FROM match WHERE year > 9",
+      "pred": "SELECT home_team FROM match WHERE year > 9"
+    }
+  ]
+}
