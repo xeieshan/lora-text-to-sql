@@ -26,3 +26,31 @@ What *has* been run is the CPU plumbing check (`sqltune smoke`, [`results/smoke_
 ### Schema
 CREATE TABLE head (name VARCHAR, age INTEGER)
 ### Question
+How many heads of departments are older than 56?
+### SQL
+SELECT COUNT(*) FROM head WHERE age > 56
+```
+
+Few-shot mode prepends three solved examples from the training split. Because the format doesn't change, the comparison isolates what fine-tuning adds.
+
+**Training.** The loss covers only the SQL tokens, because prompt tokens get label `-100`; otherwise the model spends capacity learning to reproduce schemas. Examples longer than the token budget are dropped, never truncated, since a truncated answer teaches the model to stop early. LoRA uses r=16 and α=32 on all attention and MLP projections, about 1.8% of parameters, with a cosine schedule. bf16 or fp16 is chosen to match the GPU.
+
+**Metrics.** Three numbers, because each one misleads on its own:
+
+| Metric | What it checks | Weakness it covers |
+|---|---|---|
+| Exact match | Queries are identical after sqlglot normalisation (case, whitespace, quoting) | strict: misses correct queries written differently |
+| **Execution match** | Both queries return the same rows on 3 random databases built from the schema | catches equivalent rewrites that exact match rejects |
+| Valid SQL | The prediction runs on the schema | separates "wrong" from "broken" |
+
+The tables in this dataset come empty, so naive execution comparison would score every pair of queries as equal (empty = empty). The random databases are **seeded with literals from the gold query**, so `WHERE name = 'Paris'` actually selects rows. This is an approximation of test-suite accuracy (Zhong et al., 2020); the unit tests show it accepts equivalent rewrites and rejects changed filters.
+
+## Quickstart
+
+```bash
+pip install -e ".[dev]"
+pytest                     # 16 tests, CPU only, no downloads (tiny local model)
+sqltune smoke              # end-to-end plumbing run, ~15 s on CPU
+
+# On a GPU (or open the Colab notebook):
+sqltune prepare
